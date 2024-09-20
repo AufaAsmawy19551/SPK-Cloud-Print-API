@@ -1,9 +1,9 @@
-import Joi from "Joi";
+import Joi from "joi";
 
 const spkPrinterValidation = (request) => {
   const printerObject = { id: Joi.number().min(1).required() }
 
-  request.headers.forEach(element => {
+  request?.headers?.forEach(element => {
     printerObject[ element.title ] = Joi.number().required()
   });
 
@@ -15,11 +15,11 @@ const spkPrinterValidation = (request) => {
           type: Joi.string().valid('benefit', 'cost').required(),
           weight: Joi.number().min(0).required(),
         })
-      ),
+      ).required(),
     printers:
       Joi.array().items(
         Joi.object( printerObject)
-      )
+      ).required()
   });
 }
 
