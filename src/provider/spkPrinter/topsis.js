@@ -1,298 +1,226 @@
-import LinearAlgebra from 'linear-algebra';
-const { Matrix } = LinearAlgebra();
+import LinearAlgebra from 'linear-algebra'; // Import the linear-algebra module for matrix operations
+const { Matrix } = LinearAlgebra(); // Extract the Matrix class from the linear algebra module
 
-const getnormalisedAlternativeMatrix = (alternative) => {
-  
-  // get maximum and minimum column value
-  const maxMinColumnValue = {};
-  
-  alternative.headers.forEach((header) => {
-    maxMinColumnValue[ header.title ] = {};
+/**
+ * Get the normalized weights for the criteria.
+ * @param {Object} data - The alternatives data including criteria.
+ * @returns {Array} weight - An array of normalized weights for each criterion.
+ */
+const getNormalizedWeights = (data) => {
+  // Calculate the total weight of all criteria
+  const totalWeight = data.criteria.reduce((sum, criterion) => sum + criterion.weight, 0);
+  // Return normalized weight for each criterion
+  return data.criteria.map(criterion => criterion.weight / totalWeight);
+};
 
-    maxMinColumnValue[ header.title ][ 'max' ] = alternative.printers.reduce(
-      (max, printer) => { return printer[ header.title ] > max ? printer[ header.title ] : max },
-      alternative.printers.length > 0 ? alternative.printers[ 0 ][ header.title ] : 0
-    );
+/**
+ * Determine if each criterion is a benefit or cost.
+ * @param {Object} data - The alternatives data including criteria.
+ * @returns {Array} type - An array indicating if each criterion is a benefit or cost.
+ */
+const getCriteriaTypes = (data) => {
+  // Return the type of each criterion ('max' for benefits, 'min' for costs)
+  return data.criteria.map(criterion =>
+    (criterion.type.toLowerCase() === 'benefit' ? 'max' : 'min')
+  );
+};
 
-    maxMinColumnValue[ header.title ][ 'min' ] = alternative.printers.reduce(
-      (min, printer) => { return printer[ header.title ] < min ? printer[ header.title ] : min },
-      alternative.printers.length > 0 ? alternative.printers[ 0 ][ header.title ] : 0
-    );
-  })
-  
-  // normalised each column value
-  let normalised = alternative.printers.map((printer) => {
-    let row = [];
-
-    alternative.headers.forEach((header) => {
-      row.push(
-        ((printer[ header.title ] - maxMinColumnValue[ header.title ].min) / (maxMinColumnValue[ header.title ].max - maxMinColumnValue[ header.title ].min + 1)) * (10 - 3) + 3
-      );
-    })
-
-    return row
-  })
-
-  return new Matrix(normalised);
-}
-
-const getWeight = (alternative) => {
-  let totalWeight = 0;
-
-  alternative.headers.forEach(header => {
-    totalWeight += header.weight
-  });
-
-  let weight = [];
-
-  alternative.headers.forEach(header => {
-    weight.push(header.weight / totalWeight);
-  });
-
-  return weight;
-}
-
-const getType = (alternative) => {
-  let type = [];
-
-  alternative.headers.forEach(header => {
-    type.push(header.type.toLowerCase() == 'benefit' ? 'max' : 'min');
-  });
-
-  return type;
-}
-
-const getScoredAlternative = (normalisedAlternativeMatrix, weight, type) => {
-  // validation
-  if (!normalisedAlternativeMatrix.cols) {
-    return [];
-  }
-
-  if (!(normalisedAlternativeMatrix.data)) {
-    throw new Error('ERROR. Matrix argument MUST be a linear-algebra module matrix.');
-  }
-
-  if (Array.isArray(type) === false) {
-    throw new Error('ERROR. Impact argument MUST be an array.');
-  }
-
-  if (type.length !== normalisedAlternativeMatrix.cols) {
-    throw new Error('ERROR. Impact argument size MUST be equal to Alternative Matrix columns size.');
-  }
-
-  if (type.every(i => typeof i === 'string') === false) {
-    throw new Error('ERROR. Impact argument MUST contain string type elements.');
-  }
-
-  const c1 = type.indexOf('max') > -1;
-  const c2 = type.indexOf('min') > -1;
-
-  if (!(c1 || c2)) {
-    throw new Error('ERROR. Impact argument MUST contain string type element exactly named "max" or "min" accordingly.');
-  }
-
-  if (Array.isArray(weight) === false) {
-    throw new Error('ERROR. Weights argument MUST be an array.');
-  }
-
-  if (weight.length !== normalisedAlternativeMatrix.cols) {
-    throw new Error('ERROR. Weights argument size MUST be equal to Alternative Matrix columns size.');
-  }
-
-  let i = 0;
-
-  for (i = 0; i < normalisedAlternativeMatrix.cols; i += 1) {
-    if (weight[ i ] > 1) {
-      throw new Error('ERROR. The value from an element in the weights argument cannot be higher than 1.');
-    }
-  }
-
-  function add(a, b) {
-    return a + b;
-  }
-
-
-  if (weight.reduce(add, 0) > 1) {
-    throw new Error('ERROR. Elements from the weights argument must sum exactly 1.');
-  }
-
-
-  // Normalization
-  
-  let j; // Cols
-  i = 0; // Rows
-  let norm = 0;
-  const normArray = [];
-
-  for (j = 0; j < normalisedAlternativeMatrix.cols; j += 1) {
-    for (i = 0; i < normalisedAlternativeMatrix.rows; i += 1) {
-      const num = normalisedAlternativeMatrix.data[ i ][ j ];
-      norm = (num ** 2) + norm;
-    }
-
-    norm = Math.round(Math.sqrt(norm) * 100) / 100;
-    normArray.push(norm);
-    norm = 0;
-  }
-
-  let mNormArray = [];
-
-  i = 0;
-
-  for (i = 0; i < normalisedAlternativeMatrix.rows; i += 1) {
-    mNormArray.push(normArray);
-  }
-
-  mNormArray = new Matrix(mNormArray);
-
-  // Normalised Alternative Matrix
-
-  let nm = [];
-
-  nm = normalisedAlternativeMatrix.div(mNormArray);
-
-  // Weighted normalised alternative matrix
-  let ev = [];
-  i = 0;
-  for (i = 0; i < normalisedAlternativeMatrix.rows; i += 1) {
-    ev.push(weight);
-  }
-
-  ev = new Matrix(ev);
-
-  const wnm = nm.mul(ev);
-
-
-  // Computing ideal and anti-ideal solution
-
-  i = 0; // Rows
-  j = 0; // Columns
-  let a = 0; // iterations
-  let attributeValues = [];
-  const idealSolution = [];
-  const aidealSolution = [];
-  let attributeFunction = null;
-
-  for (a = 0; a < 2; a += 1) {
-    for (j = 0; j < normalisedAlternativeMatrix.cols; j += 1) {
-      for (i = 0; i < normalisedAlternativeMatrix.rows; i += 1) {
-        attributeValues.push(wnm.data[ i ][ j ]);
-      }
-
-      if (a === 0) {
-        if (type[ j ] === 'min') {
-          attributeFunction = Math.min(...attributeValues);
-          idealSolution.push(attributeFunction);
-        } else if (type[ j ] === 'max') {
-          attributeFunction = Math.max(...attributeValues);
-          idealSolution.push(attributeFunction);
-        }
-      } else if (a === 1) {
-        if (type[ j ] === 'min') {
-          attributeFunction = Math.max(...attributeValues);
-          aidealSolution.push(attributeFunction);
-        } else if (type[ j ] === 'max') {
-          attributeFunction = Math.min(...attributeValues);
-          aidealSolution.push(attributeFunction);
-        }
-      }
-
-      attributeValues = [];
-    }
-    j = 0;
-  }
-
-
-  // Calculate distance to ideal and antiideal solution
-  i = 0; // Rows
-  j = 0; // Cols
-  a = 0;
-
-  const listIdeal = [];
-  const listaIdeal = [];
-  let distToI = 0;
-  let distToaI = 0;
-
-  for (a = 0; a < 2; a += 1) {
-    for (i = 0; i < normalisedAlternativeMatrix.rows; i += 1) {
-      distToI = 0;
-      distToaI = 0;
-      for (j = 0; j < normalisedAlternativeMatrix.cols; j += 1) {
-        if (a === 0) {
-          distToI += ((wnm.data[ i ][ j ] - idealSolution[ j ]) ** 2);
-        } else {
-          distToaI += ((wnm.data[ i ][ j ] - aidealSolution[ j ]) ** 2);
-        }
-      }
-
-      if (a === 0) {
-        distToI = Math.sqrt(distToI);
-        listIdeal.push(distToI);
-      } else {
-        distToaI = Math.sqrt(distToaI);
-        listaIdeal.push(distToaI);
-      }
-    }
-  }
-
-
-  i = 0;
-  const listedPerformancedScore = [];
-  let perferenceScore = null;
-  for (i = 0; i < normalisedAlternativeMatrix.rows; i += 1) {
-    perferenceScore = listaIdeal[ i ] / (listIdeal[ i ] + listaIdeal[ i ]);
-    listedPerformancedScore.push(perferenceScore);
-  }
-
-
-  const indexedPerferenceScore = [];
-  i = 0;
-  for (i = 0; i < normalisedAlternativeMatrix.rows; i += 1) {
-    const dp = {
-      index: i,
-      data: normalisedAlternativeMatrix.data[ i ],
-      ps: listedPerformancedScore[ i ],
+/**
+ * Get the max and min values for each criterion.
+ * @param {Object} data - The alternatives data including criteria and alternatives.
+ * @returns {Object} maxMinColumnValue - An object with max and min values for each criterion.
+ */
+const getMaxMinValues = (data) => {
+  // Reduce criteria to get max and min values for each
+  return data.criteria.reduce((acc, criterion) => {
+    acc[ criterion.title ] = {
+      // Find the maximum value for each alternative based on the criterion
+      max: Math.max(...data.alternatives.map(a => a[ criterion.title ])),
+      // Find the minimum value for each alternative based on the criterion
+      min: Math.min(...data.alternatives.map(a => a[ criterion.title ])),
     };
-    indexedPerferenceScore.push(dp);
+    return acc; // Return the accumulator containing max and min values
+  }, {});
+};
+
+/**
+ * Preprocess the alternatives' criteria values.
+ * @param {Object} data - The alternatives data including criteria and alternatives.
+ * @returns {Matrix} preprocessMatrix - A preprocessed matrix of the alternatives' criteria values.
+ */
+const preprocessAlternatives = (data) => {
+  const maxMinValues = getMaxMinValues(data); // Get max and min values for preprocessing
+
+  // Preprocess each criterion value for every alternative
+  const preprocessMatrix = data.alternatives.map(alternative =>
+    data.criteria.map(criterion =>
+      // Normalization formula: (value - min) / (max - min) * (range) + offset
+      ((alternative[ criterion.title ] - maxMinValues[ criterion.title ].min) /
+        (maxMinValues[ criterion.title ].max - maxMinValues[ criterion.title ].min + 1)) *
+      (10 - 3) + 3) // Scale to range 3 to 10
+  );
+
+  return new Matrix(preprocessMatrix); // Return the preprocess matrix
+};
+
+/**
+ * Normalize the alternatives' criteria values.
+ * @param {Object} data - The alternatives data including criteria and alternatives.
+ * @returns {Matrix} normalizedMatrix - A normalized matrix of the alternatives' criteria values.
+ */
+const normalizeAlternatives = (preprocessedAlternativeMatrix) => {
+  // Check if preprocessed alternative matrix is not empty
+  if (preprocessedAlternativeMatrix.cols == 0) {
+    // Return preprocessed alternative matrix if preprocessed alternative matrix is empty
+    return preprocessedAlternativeMatrix;
   }
 
-  return indexedPerferenceScore;
-}
+  // Calculate norms for each column
+  const { rows, cols, data } = preprocessedAlternativeMatrix;
+  const normArray = new Array(cols).fill(0);
 
-const getRankedAlternative = (scoredAlternative) => {
-  return scoredAlternative.sort((a, b) => {
-    if (b[ 'ps' ] > a[ 'ps' ]) {
-      return 1;
-    } if (b[ 'ps' ] < a[ 'ps' ]) {
-      return -1;
+  for (let j = 0; j < cols; j++) {
+    for (let i = 0; i < rows; i++) {
+      normArray[ j ] += data[ i ][ j ] ** 2;
     }
-    return 0;
-  })
+    normArray[ j ] = Math.sqrt(normArray[ j ]);
+  }
+
+  // Create a norm matrix as a column vector
+  const normMatrix = new Matrix(preprocessedAlternativeMatrix.toArray().map(() => normArray));
+
+  // Create normalized matrix
+  const normalizedMatrix = preprocessedAlternativeMatrix.div(normMatrix);
+
+  return normalizedMatrix; // Return the normalized matrix
+};
+
+/**
+ * Compute the weighted normalized matrix.
+ * @param {Matrix} normalizedMatrix - The normalized matrix of criteria values.
+ * @param {Array} weights - The normalized weights for each criterion.
+ * @returns {Matrix} weightedNormalizedMatrix - The weighted normalized matrix.
+ */
+const getWeightedNormalizedMatrix = (normalizedMatrix, weights) => {
+  // Check if normalized matrix is not empty
+  if (normalizedMatrix.cols == 0) {
+    // Return normalized matrix if normalized matrix is empty
+    return normalizedMatrix;
+  }
+
+  // Create a weight matrix as a column vector
+  const weightMatrix = new Matrix(normalizedMatrix.toArray().map(() => weights));
+
+  // Perform element-wise multiplication, broadcasting the weight vector across each row
+  const weightedNormalizedMatrix = normalizedMatrix.mul(weightMatrix);
+
+  return weightedNormalizedMatrix; // Return the weighted normalized matrix
+};
+
+/**
+ * Calculate ideal and anti-ideal solutions for the criteria.
+ * @param {Matrix} weightedNormalizedMatrix - The weighted normalized matrix.
+ * @param {Array} types - An array indicating if each criterion is a benefit or cost.
+ * @returns {Object} { idealSolution, antiIdealSolution } - The ideal and anti-ideal solutions.
+ */
+const getIdealSolutions = (weightedNormalizedMatrix, types) => {
+  const idealSolution = []; // Array for the ideal solution
+  const antiIdealSolution = []; // Array for the anti-ideal solution
+
+  // Transpose the weighted normalized matrix and calculate ideal/anti-ideal solutions
+  weightedNormalizedMatrix.trans().toArray().forEach((column, index) => {
+    if (types[ index ] === 'min') {
+      idealSolution.push(Math.min(...column)); // Ideal solution for cost criteria
+      antiIdealSolution.push(Math.max(...column)); // Anti-ideal solution for cost criteria
+    } else {
+      idealSolution.push(Math.max(...column)); // Ideal solution for benefit criteria
+      antiIdealSolution.push(Math.min(...column)); // Anti-ideal solution for benefit criteria
+    }
+  });
+
+  return { idealSolution, antiIdealSolution }; // Return ideal and anti-ideal solutions
+};
+
+/**
+ * Calculate the Euclidean distances to the ideal and anti-ideal solutions.
+ * @param {Matrix} weightedNormalizedMatrix - The weighted normalized matrix.
+ * @param {Array} idealSolution - The ideal solution array.
+ * @param {Array} antiIdealSolution - The anti-ideal solution array.
+ * @returns {Object} { distToIdeal, distToAntiIdeal } - Distances to ideal and anti-ideal solutions.
+ */
+const calculateDistances = (weightedNormalizedMatrix, idealSolution, antiIdealSolution) => {
+  // Calculate the distance to the ideal solution for each alternative
+  const distToIdeal = weightedNormalizedMatrix.toArray().map(row =>
+    Math.sqrt(row.reduce((sum, value, index) => sum + (value - idealSolution[ index ]) ** 2, 0))
+  );
+
+  // Calculate the distance to the anti-ideal solution for each alternative
+  const distToAntiIdeal = weightedNormalizedMatrix.toArray().map(row =>
+    Math.sqrt(row.reduce((sum, value, index) => sum + (value - antiIdealSolution[ index ]) ** 2, 0))
+  );
+
+  return { distToIdeal, distToAntiIdeal }; // Return distances to ideal and anti-ideal solutions
+};
+
+/**
+ * Calculate the preference score for each alternative.
+ * @param {Object} distances - Distances to ideal and anti-ideal solutions.
+ * @returns {Array} preferenceScores - An array of preference scores for each alternative.
+ */
+const calculatePreferenceScores = ({ distToIdeal, distToAntiIdeal }) => {
+  // Calculate preference scores based on distances
+  return distToAntiIdeal.map((dAnti, index) =>
+    dAnti / (dAnti + distToIdeal[ index ]) // Preference score formula
+  );
+};
+
+/**
+ * Rank the alternatives based on the preference score.
+ * @param {Array} preferenceScores - The preference scores for each alternative.
+ * @param {Array} alternatives - The array of alternative options.
+ * @param {Function} [rankBy] - A custom sorting function that defines the ranking order.
+ * @returns {Object} bestAlternative - The best alternative based on scores.
+ */
+const rankAlternatives = (preferenceScores, alternatives, rankBy = function (a, b) { return b.score - a.score }) => {
+  // Combine each alternative with its corresponding preference score
+  const ranked = alternatives.map((alternative, index) => ({
+    ...alternative, // Spread the properties of the alternative
+    score: preferenceScores[ index ] ?? 1 // Assign the preference score; default to 1 if undefined
+  })).sort(rankBy); // Sort the combined array by score using the provided ranking function
+
+  // Return the highest-ranked alternative or null if none exists
+  return ranked[ 0 ] || null;
+};
+
+/**
+ * Main function to get the best alternative using the TOPSIS method.
+ * @param {Object} data - The alternatives data including criteria and alternatives.
+ * @param {Function} [rankBy] - A custom sorting function that defines the ranking order.
+ * @returns {Object} bestAlternative - The best alternative determined by the method.
+ */
+export const getBestAlternative = (data, rankBy = function (a, b) { return b.score - a.score }) => {
+  // Get the normalized weights for each criterion
+  const weights = getNormalizedWeights(data);
+  // Determine the types of criteria (benefit or cost)
+  const types = getCriteriaTypes(data);
+  // Normalize the alternatives' criteria values
+  const preprocessMatrix = preprocessAlternatives(data);
+  // Normalize the alternatives' criteria values
+  const normalizedMatrix = normalizeAlternatives(preprocessMatrix);
+  // Calculate the weighted normalized matrix
+  const weightedNormalizedMatrix = getWeightedNormalizedMatrix(normalizedMatrix, weights);
+  // Calculate ideal and anti-ideal solutions based on the weighted matrix
+  const { idealSolution, antiIdealSolution } = getIdealSolutions(weightedNormalizedMatrix, types);
+  // Calculate the distances to the ideal and anti-ideal solutions
+  const distances = calculateDistances(weightedNormalizedMatrix, idealSolution, antiIdealSolution);
+  // Calculate preference scores based on the distances
+  const preferenceScores = calculatePreferenceScores(distances);
+  // Rank the alternatives based on their preference scores and return the best alternative
+  return rankAlternatives(preferenceScores, data.alternatives, rankBy);
 }
 
-export const getBestAlternative = (alternative) => {
-  const normalisedAlternativeMatrix = getnormalisedAlternativeMatrix(alternative);
-
-  const weight = getWeight(alternative);
-
-  const type = getType(alternative);
-
-  const scoredAlternative = getScoredAlternative(normalisedAlternativeMatrix, weight, type)
-
-  const rankedAlternative = getRankedAlternative(scoredAlternative);
-
-  return alternative.printers[ rankedAlternative[ 0 ]?.index ] ?? {};
-}
-
+// Export the main function for use in other modules
 export default {
-  getBestAlternative
-}
-
-
-
-
-
-
-
-
+  getBestAlternative // Export the best alternative function
+};
 
